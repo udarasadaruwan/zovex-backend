@@ -93,7 +93,9 @@ export const completeCheckoutSession = async (sessionId, user) => {
   await Cart.findOneAndUpdate({ user: user._id }, { items: [] });
 
   if (!wasAlreadyPaid) {
-    await sendOrderConfirmationEmail(user, order);
+    sendOrderConfirmationEmail(user, order).catch((error) => {
+      console.warn('Order confirmation email failed:', error.message);
+    });
   }
 
   return order;
