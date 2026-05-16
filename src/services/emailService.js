@@ -1,4 +1,4 @@
-import dns from 'node:dns';
+import dns from 'node:dns/promises';
 import nodemailer from 'nodemailer';
 import {
   orderConfirmationTemplate,
@@ -8,11 +8,19 @@ import {
 } from './emailTemplates.js';
 import ApiError from '../utils/ApiError.js';
 
-const ipv4Lookup = (hostname, options, callback) => {
-  dns.lookup(hostname, { ...options, family: 4 }, callback);
+const normalizeEmailPassword = (password = '') => password.replace(/\s+/g, '');
+
+const resolveSmtpHost = async (host) => {
+  try {
+    const addresses = await dns.resolve4(host);
+    return addresses[0] || host;
+  } catch (error) {
+    console.warn(`Unable to resolve SMTP IPv4 address for ${host}: ${error.message}`);
+    return host;
+  }
 };
 
-const buildTransporter = () => {
+const buildTransporter = async (overrides = {}) => {
   const hasSmtpConfig = process.env.EMAIL_HOST && process.env.EMAIL_USER && process.env.EMAIL_PASS;
 
   if (!hasSmtpConfig) {
@@ -27,19 +35,26 @@ const buildTransporter = () => {
     });
   }
 
+  const smtpHost = process.env.EMAIL_HOST.trim();
+  const smtpPort = Number(overrides.port || process.env.EMAIL_PORT || 587);
+  const resolvedHost = await resolveSmtpHost(smtpHost);
+
   const transportOptions = {
-    host: process.env.EMAIL_HOST,
-    port: Number(process.env.EMAIL_PORT || 587),
-    secure: Number(process.env.EMAIL_PORT) === 465,
+    host: resolvedHost,
+    port: smtpPort,
+    secure: overrides.secure ?? smtpPort === 465,
     family: 4,
     dnsTimeout: 10000,
     connectionTimeout: 10000,
     greetingTimeout: 10000,
     socketTimeout: 15000,
-    lookup: ipv4Lookup,
+    requireTLS: smtpPort === 587,
+    tls: {
+      servername: smtpHost
+    },
     auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS
+      user: process.env.EMAIL_USER.trim(),
+      pass: normalizeEmailPassword(process.env.EMAIL_PASS)
     }
   };
 
@@ -47,20 +62,38 @@ const buildTransporter = () => {
 };
 
 export const sendEmail = async ({ to, subject, html }) => {
-  const transporter = buildTransporter();
+  const sendMessage = async (transportOverrides) => {
+    const transporter = await buildTransporter(transportOverrides);
 
-  let message;
-
-  try {
-    message = await transporter.sendMail({
+    return transporter.sendMail({
       from: process.env.EMAIL_FROM || process.env.EMAIL_USER || 'Zovex <no-reply@zovex.local>',
       to,
       subject,
       html
     });
+  };
+
+  let message;
+
+  try {
+    message = await sendMessage();
   } catch (error) {
-    console.error(`Email delivery failed for ${to}:`, error);
-    throw new ApiError('Email delivery failed. Please check the email service configuration and try again.', 502);
+    const configuredPort = Number(process.env.EMAIL_PORT || 587);
+    const shouldRetryGmailSsl = process.env.EMAIL_HOST?.includes('gmail') && configuredPort !== 465;
+
+    if (!shouldRetryGmailSsl) {
+      console.error(`Email delivery failed for ${to}:`, error);
+      throw new ApiError('Email delivery failed. Please check the email service configuration and try again.', 502);
+    }
+
+    console.warn(`Primary SMTP delivery failed for ${to}; retrying with Gmail SSL port 465: ${error.message}`);
+
+    try {
+      message = await sendMessage({ port: 465, secure: true });
+    } catch (retryError) {
+      console.error(`Email delivery failed for ${to}:`, retryError);
+      throw new ApiError('Email delivery failed. Please check the email service configuration and try again.', 502);
+    }
   }
 
   if (message.message?.toString && process.env.NODE_ENV !== 'production') {
