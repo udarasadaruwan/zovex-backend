@@ -31,6 +31,8 @@ const buildTransporter = () => {
     host: process.env.EMAIL_HOST,
     port: Number(process.env.EMAIL_PORT || 587),
     secure: Number(process.env.EMAIL_PORT) === 465,
+    family: 4,
+    dnsTimeout: 10000,
     connectionTimeout: 10000,
     greetingTimeout: 10000,
     socketTimeout: 15000,
