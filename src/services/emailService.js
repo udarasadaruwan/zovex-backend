@@ -1,3 +1,4 @@
+import dns from 'node:dns';
 import nodemailer from 'nodemailer';
 import {
   orderConfirmationTemplate,
@@ -6,6 +7,10 @@ import {
   welcomeEmailTemplate
 } from './emailTemplates.js';
 import ApiError from '../utils/ApiError.js';
+
+const ipv4Lookup = (hostname, options, callback) => {
+  dns.lookup(hostname, { ...options, family: 4 }, callback);
+};
 
 const buildTransporter = () => {
   const hasSmtpConfig = process.env.EMAIL_HOST && process.env.EMAIL_USER && process.env.EMAIL_PASS;
@@ -29,6 +34,7 @@ const buildTransporter = () => {
     connectionTimeout: 10000,
     greetingTimeout: 10000,
     socketTimeout: 15000,
+    lookup: ipv4Lookup,
     auth: {
       user: process.env.EMAIL_USER,
       pass: process.env.EMAIL_PASS
@@ -41,12 +47,19 @@ const buildTransporter = () => {
 export const sendEmail = async ({ to, subject, html }) => {
   const transporter = buildTransporter();
 
-  const message = await transporter.sendMail({
-    from: process.env.EMAIL_FROM || process.env.EMAIL_USER || 'Zovex <no-reply@zovex.local>',
-    to,
-    subject,
-    html
-  });
+  let message;
+
+  try {
+    message = await transporter.sendMail({
+      from: process.env.EMAIL_FROM || process.env.EMAIL_USER || 'Zovex <no-reply@zovex.local>',
+      to,
+      subject,
+      html
+    });
+  } catch (error) {
+    console.error(`Email delivery failed for ${to}:`, error);
+    throw new ApiError('Email delivery failed. Please check the email service configuration and try again.', 502);
+  }
 
   if (message.message?.toString && process.env.NODE_ENV !== 'production') {
     console.warn('SMTP is not configured. Email preview only; fill EMAIL_HOST, EMAIL_USER, and EMAIL_PASS to send real emails.');
