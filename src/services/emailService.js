@@ -12,11 +12,21 @@ const normalizeEmailPassword = (password = '') => password.replace(/\s+/g, '');
 const fromAddress = () => process.env.EMAIL_FROM || process.env.EMAIL_USER || 'Zovex <no-reply@zovex.local>';
 
 const assertEmailApiResponse = async (response, providerName) => {
-  if (response.ok) {
-    return response.json().catch(() => ({}));
+  const body = await response.text().catch(() => '');
+  let data = {};
+
+  if (body) {
+    try {
+      data = JSON.parse(body);
+    } catch {
+      data = { raw: body };
+    }
   }
 
-  const body = await response.text().catch(() => '');
+  if (response.ok && data.ok !== false) {
+    return data;
+  }
+
   console.error(`${providerName} email API failed: ${response.status} ${body}`);
   throw new ApiError('Email delivery failed. Please check the email service configuration and try again.', 502);
 };
@@ -51,6 +61,7 @@ const sendWithEmailWebhook = async ({ to, subject, html }) => {
       ...(process.env.EMAIL_WEBHOOK_SECRET ? { 'X-Zovex-Email-Secret': process.env.EMAIL_WEBHOOK_SECRET } : {})
     },
     body: JSON.stringify({
+      secret: process.env.EMAIL_WEBHOOK_SECRET,
       from: fromAddress(),
       to,
       subject,
@@ -113,7 +124,7 @@ const buildTransporter = async (overrides = {}) => {
 };
 
 export const sendEmail = async ({ to, subject, html }) => {
-  const apiMessage = (await sendWithResend({ to, subject, html })) || (await sendWithEmailWebhook({ to, subject, html }));
+  const apiMessage = (await sendWithEmailWebhook({ to, subject, html })) || (await sendWithResend({ to, subject, html }));
 
   if (apiMessage) {
     return apiMessage;
