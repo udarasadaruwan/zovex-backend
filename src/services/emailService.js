@@ -9,6 +9,57 @@ import {
 import ApiError from '../utils/ApiError.js';
 
 const normalizeEmailPassword = (password = '') => password.replace(/\s+/g, '');
+const fromAddress = () => process.env.EMAIL_FROM || process.env.EMAIL_USER || 'Zovex <no-reply@zovex.local>';
+
+const assertEmailApiResponse = async (response, providerName) => {
+  if (response.ok) {
+    return response.json().catch(() => ({}));
+  }
+
+  const body = await response.text().catch(() => '');
+  console.error(`${providerName} email API failed: ${response.status} ${body}`);
+  throw new ApiError('Email delivery failed. Please check the email service configuration and try again.', 502);
+};
+
+const sendWithResend = async ({ to, subject, html }) => {
+  if (!process.env.RESEND_API_KEY) return null;
+
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      from: fromAddress(),
+      to,
+      subject,
+      html
+    })
+  });
+
+  return assertEmailApiResponse(response, 'Resend');
+};
+
+const sendWithEmailWebhook = async ({ to, subject, html }) => {
+  if (!process.env.EMAIL_WEBHOOK_URL) return null;
+
+  const response = await fetch(process.env.EMAIL_WEBHOOK_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(process.env.EMAIL_WEBHOOK_SECRET ? { 'X-Zovex-Email-Secret': process.env.EMAIL_WEBHOOK_SECRET } : {})
+    },
+    body: JSON.stringify({
+      from: fromAddress(),
+      to,
+      subject,
+      html
+    })
+  });
+
+  return assertEmailApiResponse(response, 'Email webhook');
+};
 
 const resolveSmtpHost = async (host) => {
   try {
@@ -62,11 +113,17 @@ const buildTransporter = async (overrides = {}) => {
 };
 
 export const sendEmail = async ({ to, subject, html }) => {
+  const apiMessage = (await sendWithResend({ to, subject, html })) || (await sendWithEmailWebhook({ to, subject, html }));
+
+  if (apiMessage) {
+    return apiMessage;
+  }
+
   const sendMessage = async (transportOverrides) => {
     const transporter = await buildTransporter(transportOverrides);
 
     return transporter.sendMail({
-      from: process.env.EMAIL_FROM || process.env.EMAIL_USER || 'Zovex <no-reply@zovex.local>',
+      from: fromAddress(),
       to,
       subject,
       html

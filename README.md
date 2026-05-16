@@ -100,12 +100,19 @@ GOOGLE_CLIENT_ID=your-google-client-id
 GOOGLE_CLIENT_SECRET=your-google-client-secret
 GOOGLE_CALLBACK_URL=http://localhost:5000/api/auth/google/callback
 
+EMAIL_FROM=Zovex <no-reply@zovex.local>
+
+# Local/dev SMTP. Some cloud hosts block SMTP ports in production.
 EMAIL_HOST=smtp.example.com
 EMAIL_PORT=587
 EMAIL_USER=your-smtp-user
 EMAIL_PASS=your-smtp-password
-EMAIL_FROM=Zovex <no-reply@zovex.local>
 EMAIL_PREVIEW=true
+
+# Production HTTPS email options. Configure one when SMTP is blocked.
+RESEND_API_KEY=re_xxxxxxxxxxxxxxxxxxxxx
+EMAIL_WEBHOOK_URL=https://your-email-webhook.example.com/send
+EMAIL_WEBHOOK_SECRET=replace-with-a-shared-secret
 ```
 
 Only `MONGO_URI` and `JWT_SECRET` are essential for the core API. Stripe, Cloudinary, Google OAuth, and SMTP features need their matching keys before those specific routes can work fully.
@@ -259,7 +266,8 @@ or in the `token` cookie set by the auth service. Role checks are enforced by th
 | Stripe checkout fails | Add `STRIPE_SECRET_KEY` and confirm the order belongs to the signed-in user |
 | Image upload fails | Add all Cloudinary variables |
 | Google OAuth does not start | Add `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and a valid callback URL |
-| Emails are not sent | Add SMTP variables or use `EMAIL_PREVIEW=true` during development |
+| Emails work locally but not on Render | Use `RESEND_API_KEY` or `EMAIL_WEBHOOK_URL`; many cloud/free hosts block SMTP ports like 465 and 587 |
+| Emails are not sent locally | Add SMTP variables or use `EMAIL_PREVIEW=true` during development |
 
 ## License
 
