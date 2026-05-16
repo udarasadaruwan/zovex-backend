@@ -11,7 +11,7 @@ export const registerUser = async ({ name, email, password, role }) => {
 
   const requestedRole = role === 'seller' ? 'seller' : 'user';
   const user = await User.create({ name, email, password, role: requestedRole });
-  await sendWelcomeEmail(user);
+  sendWelcomeEmail(user);
   return user;
 };
 

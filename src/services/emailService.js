@@ -26,6 +26,9 @@ const buildTransporter = () => {
     host: process.env.EMAIL_HOST,
     port: Number(process.env.EMAIL_PORT || 587),
     secure: Number(process.env.EMAIL_PORT) === 465,
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    socketTimeout: 15000,
     auth: {
       user: process.env.EMAIL_USER,
       pass: process.env.EMAIL_PASS
@@ -39,7 +42,7 @@ export const sendEmail = async ({ to, subject, html }) => {
   const transporter = buildTransporter();
 
   const message = await transporter.sendMail({
-    from: process.env.EMAIL_FROM || 'Zovex <no-reply@zovex.local>',
+    from: process.env.EMAIL_FROM || process.env.EMAIL_USER || 'Zovex <no-reply@zovex.local>',
     to,
     subject,
     html
