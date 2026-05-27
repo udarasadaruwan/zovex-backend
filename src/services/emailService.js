@@ -10,6 +10,24 @@ import ApiError from '../utils/ApiError.js';
 
 const normalizeEmailPassword = (password = '') => password.replace(/\s+/g, '');
 const fromAddress = () => process.env.EMAIL_FROM || process.env.EMAIL_USER || 'Zovex <no-reply@zovex.local>';
+
+const toBase64Url = (value) => Buffer.from(value).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+
+const parseFromAddress = (value = fromAddress()) => {
+  const match = value.match(/^(.*)<([^>]+)>$/);
+
+  if (!match) {
+    return {
+      name: process.env.BREVO_SENDER_NAME || 'Zovex',
+      email: value.trim()
+    };
+  }
+
+  return {
+    name: (process.env.BREVO_SENDER_NAME || match[1]).trim() || 'Zovex',
+    email: match[2].trim()
+  };
+};
 const redirectStatuses = new Set([301, 302, 303, 307, 308]);
 
 const postJsonFollowingRedirects = async (url, options, redirectsLeft = 5) => {
@@ -74,6 +92,82 @@ const sendWithResend = async ({ to, subject, html }) => {
   });
 
   return assertEmailApiResponse(response, 'Resend');
+};
+
+const sendWithBrevo = async ({ to, subject, html }) => {
+  if (!process.env.BREVO_API_KEY) return null;
+
+  const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+    method: 'POST',
+    headers: {
+      accept: 'application/json',
+      'api-key': process.env.BREVO_API_KEY,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      sender: parseFromAddress(),
+      to: [{ email: to }],
+      subject,
+      htmlContent: html
+    })
+  });
+
+  return assertEmailApiResponse(response, 'Brevo');
+};
+
+const getGmailAccessToken = async () => {
+  const response = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded'
+    },
+    body: new URLSearchParams({
+      client_id: process.env.GMAIL_API_CLIENT_ID,
+      client_secret: process.env.GMAIL_API_CLIENT_SECRET,
+      refresh_token: process.env.GMAIL_API_REFRESH_TOKEN,
+      grant_type: 'refresh_token'
+    })
+  });
+
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok || !data.access_token) {
+    console.error(`Gmail token request failed: ${response.status} ${JSON.stringify(data)}`);
+    throw new ApiError('Email delivery failed. Please check the email service configuration and try again.', 502);
+  }
+
+  return data.access_token;
+};
+
+const sendWithGmailApi = async ({ to, subject, html }) => {
+  if (!process.env.GMAIL_API_CLIENT_ID || !process.env.GMAIL_API_CLIENT_SECRET || !process.env.GMAIL_API_REFRESH_TOKEN) {
+    return null;
+  }
+
+  const accessToken = await getGmailAccessToken();
+  const gmailUser = process.env.GMAIL_API_USER || 'me';
+  const rawMessage = [
+    `From: ${fromAddress()}`,
+    `To: ${to}`,
+    `Subject: ${subject}`,
+    'MIME-Version: 1.0',
+    'Content-Type: text/html; charset=UTF-8',
+    '',
+    html
+  ].join('\r\n');
+
+  const response = await fetch(`https://gmail.googleapis.com/gmail/v1/users/${encodeURIComponent(gmailUser)}/messages/send`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      raw: toBase64Url(rawMessage)
+    })
+  });
+
+  return assertEmailApiResponse(response, 'Gmail API');
 };
 
 const sendWithEmailWebhook = async ({ to, subject, html }) => {
@@ -149,7 +243,11 @@ const buildTransporter = async (overrides = {}) => {
 };
 
 export const sendEmail = async ({ to, subject, html }) => {
-  const apiMessage = (await sendWithEmailWebhook({ to, subject, html })) || (await sendWithResend({ to, subject, html }));
+  const apiMessage =
+    (await sendWithGmailApi({ to, subject, html })) ||
+    (await sendWithBrevo({ to, subject, html })) ||
+    (await sendWithEmailWebhook({ to, subject, html })) ||
+    (await sendWithResend({ to, subject, html }));
 
   if (apiMessage) {
     return apiMessage;
