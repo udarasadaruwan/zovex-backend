@@ -10,6 +10,31 @@ import ApiError from '../utils/ApiError.js';
 
 const normalizeEmailPassword = (password = '') => password.replace(/\s+/g, '');
 const fromAddress = () => process.env.EMAIL_FROM || process.env.EMAIL_USER || 'Zovex <no-reply@zovex.local>';
+const redirectStatuses = new Set([301, 302, 303, 307, 308]);
+
+const postJsonFollowingRedirects = async (url, options, redirectsLeft = 5) => {
+  const response = await fetch(url, {
+    ...options,
+    redirect: 'manual'
+  });
+
+  if (!redirectStatuses.has(response.status)) {
+    return response;
+  }
+
+  if (redirectsLeft <= 0) {
+    return response;
+  }
+
+  const location = response.headers.get('location');
+
+  if (!location) {
+    return response;
+  }
+
+  const nextUrl = new URL(location, url).toString();
+  return postJsonFollowingRedirects(nextUrl, options, redirectsLeft - 1);
+};
 
 const assertEmailApiResponse = async (response, providerName) => {
   const body = await response.text().catch(() => '');
@@ -54,7 +79,7 @@ const sendWithResend = async ({ to, subject, html }) => {
 const sendWithEmailWebhook = async ({ to, subject, html }) => {
   if (!process.env.EMAIL_WEBHOOK_URL) return null;
 
-  const response = await fetch(process.env.EMAIL_WEBHOOK_URL, {
+  const response = await postJsonFollowingRedirects(process.env.EMAIL_WEBHOOK_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
