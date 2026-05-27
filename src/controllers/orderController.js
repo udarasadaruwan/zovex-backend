@@ -19,6 +19,6 @@ export const getOrder = catchAsync(async (req, res) => {
 });
 
 export const editOrderStatus = catchAsync(async (req, res) => {
-  const order = await updateOrderStatus(req.params.id, req.body.status);
+  const order = await updateOrderStatus(req.params.id, req.body.status, req.user);
   res.json({ order });
 });

@@ -7,6 +7,6 @@ const router = express.Router();
 router.use(protect);
 router.route('/').post(addOrder).get(myOrders);
 router.route('/:id').get(getOrder);
-router.patch('/:id/status', authorize('admin'), editOrderStatus);
+router.patch('/:id/status', authorize('admin', 'seller'), editOrderStatus);
 
 export default router;

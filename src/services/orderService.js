@@ -54,12 +54,36 @@ export const listUserOrders = (userId) => {
   return Order.find({ user: userId }).sort({ createdAt: -1 });
 };
 
-export const updateOrderStatus = async (orderId, status) => {
-  const order = await Order.findByIdAndUpdate(orderId, { status }, { new: true });
+const adminOrderStatuses = ['pending', 'paid', 'processing', 'shipped', 'delivered', 'cancelled'];
+const sellerOrderStatuses = ['paid', 'processing', 'shipped', 'delivered'];
+
+export const updateOrderStatus = async (orderId, status, user) => {
+  const allowedStatuses = user?.role === 'seller' ? sellerOrderStatuses : adminOrderStatuses;
+
+  if (!allowedStatuses.includes(status)) {
+    throw new ApiError('This order status is not allowed for your account.', 400);
+  }
+
+  const order = await Order.findById(orderId);
 
   if (!order) {
     throw new ApiError('Order not found.', 404);
   }
+
+  if (user?.role === 'seller') {
+    const orderProductIds = [...new Set(order.items.map((item) => item.product.toString()))];
+    const sellerProductCount = await Product.countDocuments({
+      _id: { $in: orderProductIds },
+      seller: user._id
+    });
+
+    if (sellerProductCount !== orderProductIds.length) {
+      throw new ApiError('You can only update orders that contain your products only.', 403);
+    }
+  }
+
+  order.status = status;
+  await order.save();
 
   return order;
 };

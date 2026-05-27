@@ -64,6 +64,7 @@ Expected response:
 - Product image upload through Cloudinary
 - Per-user cart endpoints
 - Order creation with shipping address
+- Seller fulfillment status updates for seller-owned product orders
 - Stripe Checkout session creation
 - Payment success confirmation
 - Cart clearing only after confirmed payment
@@ -75,6 +76,7 @@ Expected response:
 - One review per user per product
 - Admin dashboard metrics for users, sellers, categories, products, orders, reviews, revenue, and ratings
 - Seller dashboard metrics for seller-owned catalog, low stock, orders, reviews, and revenue
+- Seller order management with ownership checks before fulfillment status changes
 - User dashboard summary for orders and cart state
 
 ## Tech Stack
@@ -260,7 +262,7 @@ http://localhost:5000
 | `POST` | `/api/orders` | Authenticated | Create an order |
 | `GET` | `/api/orders` | Authenticated | List current user's orders |
 | `GET` | `/api/orders/:id` | Authenticated | Get one order |
-| `PATCH` | `/api/orders/:id/status` | Admin | Update order status |
+| `PATCH` | `/api/orders/:id/status` | Admin, Seller | Update order status |
 | `POST` | `/api/payments/checkout-session` | Authenticated | Create Stripe Checkout session |
 | `GET` | `/api/payments/checkout-session/:sessionId/success` | Authenticated | Confirm successful checkout |
 
@@ -300,6 +302,8 @@ seller -> seller inventory and seller dashboard
 admin -> user roles, categories, order status, platform dashboard
 ```
 
+Sellers can move orders through fulfillment states (`paid`, `processing`, `shipped`, `delivered`) only when every product in that order belongs to them. Admins retain full order status control.
+
 ## Data Models
 
 | Model | Purpose |
@@ -338,6 +342,7 @@ admin -> user roles, categories, order status, platform dashboard
 
 - Why the API is split into controller and service layers.
 - How role-based access control protects seller and admin routes.
+- How seller fulfillment updates are allowed without exposing another seller's orders.
 - How Stripe payment confirmation is separated from order creation.
 - How email delivery was adapted for Render by moving from SMTP to HTTPS providers.
 - How dashboard endpoints aggregate operational data for each role.
