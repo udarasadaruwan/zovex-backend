@@ -10,6 +10,25 @@ const slugify = (value) =>
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/(^-|-$)/g, '');
 
+const editableProductFields = [
+  'name',
+  'description',
+  'brand',
+  'price',
+  'category',
+  'images',
+  'quantity',
+  'sku',
+  'lowStockThreshold'
+];
+
+const pickEditableProductFields = (payload) =>
+  Object.fromEntries(
+    editableProductFields
+      .filter((field) => payload[field] !== undefined)
+      .map((field) => [field, payload[field]])
+  );
+
 export const listProducts = async ({ keyword, category, featured }) => {
   const query = { isActive: true };
 
@@ -29,7 +48,7 @@ export const listSellerProducts = async (sellerId) => {
 };
 
 export const getProductById = async (id) => {
-  const product = await Product.findById(id).populate('category', 'name slug');
+  const product = await Product.findOne({ _id: id, isActive: true }).populate('category', 'name slug');
   const inventory = await Inventory.findOne({ product: id });
 
   if (!product) {
@@ -40,30 +59,40 @@ export const getProductById = async (id) => {
 };
 
 export const createProduct = async (payload, sellerId) => {
-  const category = await Category.findById(payload.category);
+  const productPayload = pickEditableProductFields(payload);
+  const category = await Category.findOne({ _id: productPayload.category, isActive: true });
 
   if (!category) {
     throw new ApiError('Selected category does not exist.', 400);
   }
 
   const product = await Product.create({
-    ...payload,
+    ...productPayload,
     seller: sellerId,
-    slug: payload.slug || slugify(payload.name)
+    slug: slugify(productPayload.name)
   });
 
   await Inventory.create({
     product: product._id,
-    quantity: payload.quantity || 0,
-    sku: payload.sku,
-    lowStockThreshold: payload.lowStockThreshold || 5
+    quantity: productPayload.quantity ?? 0,
+    sku: productPayload.sku,
+    lowStockThreshold: productPayload.lowStockThreshold ?? 5
   });
 
   return getProductById(product._id);
 };
 
 export const updateProduct = async (id, payload) => {
-  const updatePayload = { ...payload };
+  const editableFields = pickEditableProductFields(payload);
+  const { quantity, sku, lowStockThreshold, ...updatePayload } = editableFields;
+
+  if (updatePayload.category) {
+    const category = await Category.findOne({ _id: updatePayload.category, isActive: true });
+
+    if (!category) {
+      throw new ApiError('Selected category does not exist.', 400);
+    }
+  }
 
   if (payload.name) {
     updatePayload.slug = slugify(payload.name);
@@ -75,11 +104,17 @@ export const updateProduct = async (id, payload) => {
     throw new ApiError('Product not found.', 404);
   }
 
-  if (payload.quantity !== undefined) {
+  if (quantity !== undefined || sku !== undefined || lowStockThreshold !== undefined) {
+    const inventoryUpdates = {
+      ...(quantity !== undefined && { quantity }),
+      ...(sku !== undefined && { sku }),
+      ...(lowStockThreshold !== undefined && { lowStockThreshold })
+    };
+
     await Inventory.findOneAndUpdate(
       { product: id },
-      { quantity: payload.quantity },
-      { upsert: true, new: true }
+      inventoryUpdates,
+      { upsert: true, new: true, runValidators: true }
     );
   }
 

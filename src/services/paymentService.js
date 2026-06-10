@@ -16,19 +16,36 @@ export const createCheckoutSession = async (orderId, user) => {
     throw new ApiError('Order not found.', 404);
   }
 
+  if (order.status !== 'pending') {
+    throw new ApiError('This order is no longer awaiting payment.', 400);
+  }
+
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+  const lineItems = order.items.map((item) => ({
+    price_data: {
+      currency: 'usd',
+      product_data: { name: item.name },
+      unit_amount: Math.round(item.price * 100)
+    },
+    quantity: item.quantity
+  }));
+
+  if (order.deliveryFee > 0) {
+    lineItems.push({
+      price_data: {
+        currency: 'usd',
+        product_data: { name: 'Delivery fee' },
+        unit_amount: Math.round(order.deliveryFee * 100)
+      },
+      quantity: 1
+    });
+  }
+
   const session = await stripe.checkout.sessions.create({
     mode: 'payment',
     payment_method_types: ['card'],
     customer_email: user.email,
-    line_items: order.items.map((item) => ({
-      price_data: {
-        currency: 'usd',
-        product_data: { name: item.name },
-        unit_amount: Math.round(item.price * 100)
-      },
-      quantity: item.quantity
-    })),
+    line_items: lineItems,
     success_url: `${frontendUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${frontendUrl}/checkout/cancelled`,
     metadata: {
@@ -80,6 +97,13 @@ export const completeCheckoutSession = async (sessionId, user) => {
     throw new ApiError('Order not found.', 404);
   }
 
+  if (
+    session.metadata?.orderId !== order._id.toString() ||
+    session.metadata?.userId !== user._id.toString()
+  ) {
+    throw new ApiError('Payment session does not match this order.', 400);
+  }
+
   const wasAlreadyPaid = payment.status === 'paid';
 
   if (!wasAlreadyPaid) {
@@ -87,8 +111,10 @@ export const completeCheckoutSession = async (sessionId, user) => {
     await payment.save();
   }
 
-  order.status = 'paid';
-  await order.save();
+  if (order.status === 'pending') {
+    order.status = 'paid';
+    await order.save();
+  }
 
   await Cart.findOneAndUpdate({ user: user._id }, { items: [] });
 

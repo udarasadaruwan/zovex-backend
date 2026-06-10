@@ -5,7 +5,11 @@ import { deleteImage, uploadImage } from '../services/mediaService.js';
 import { changePasswordWithOtp, requestPasswordChangeOtp } from '../services/passwordResetService.js';
 
 export const updateProfile = catchAsync(async (req, res) => {
-  const { role, avatar, avatarPublicId, password, ...profileUpdates } = req.body;
+  const profileUpdates = {
+    ...(req.body.name !== undefined && { name: req.body.name }),
+    ...(req.body.phone !== undefined && { phone: req.body.phone }),
+    ...(req.body.address !== undefined && { address: req.body.address })
+  };
   const user = await User.findByIdAndUpdate(req.user._id, profileUpdates, {
     new: true,
     runValidators: true

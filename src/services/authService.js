@@ -11,7 +11,9 @@ export const registerUser = async ({ name, email, password, role }) => {
 
   const requestedRole = role === 'seller' ? 'seller' : 'user';
   const user = await User.create({ name, email, password, role: requestedRole });
-  sendWelcomeEmail(user);
+  sendWelcomeEmail(user).catch((error) => {
+    console.warn('Welcome email failed:', error.message);
+  });
   return user;
 };
 

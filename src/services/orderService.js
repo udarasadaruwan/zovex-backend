@@ -17,11 +17,24 @@ export const createOrder = async (user, { items, shippingAddress }) => {
     throw new ApiError('Phone number and shipping address are required.', 400);
   }
 
-  const productIds = items.map((item) => item.product);
-  const products = await Product.find({ _id: { $in: productIds } });
+  const normalizedItems = items.map((item) => ({
+    product: item.product,
+    quantity: Number(item.quantity)
+  }));
 
-  const orderItems = items.map((item) => {
-    const product = products.find((current) => current._id.toString() === item.product);
+  if (
+    normalizedItems.some(
+      (item) => !item.product || !Number.isInteger(item.quantity) || item.quantity < 1
+    )
+  ) {
+    throw new ApiError('Every order item must have a valid product and positive whole-number quantity.', 400);
+  }
+
+  const productIds = normalizedItems.map((item) => item.product);
+  const products = await Product.find({ _id: { $in: productIds }, isActive: true });
+
+  const orderItems = normalizedItems.map((item) => {
+    const product = products.find((current) => current._id.toString() === String(item.product));
 
     if (!product) {
       throw new ApiError('One or more products were not found.', 400);
@@ -79,6 +92,13 @@ export const updateOrderStatus = async (orderId, status, user) => {
 
     if (sellerProductCount !== orderProductIds.length) {
       throw new ApiError('You can only update orders that contain your products only.', 403);
+    }
+
+    const currentStatusIndex = sellerOrderStatuses.indexOf(order.status);
+    const nextStatusIndex = sellerOrderStatuses.indexOf(status);
+
+    if (currentStatusIndex === -1 || nextStatusIndex < currentStatusIndex) {
+      throw new ApiError('Seller order status can only move forward.', 400);
     }
   }
 

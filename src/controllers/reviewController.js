@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import Product from '../models/Product.js';
 import Review from '../models/Review.js';
+import ApiError from '../utils/ApiError.js';
 import catchAsync from '../utils/catchAsync.js';
 
 const updateProductRating = async (productId) => {
@@ -24,6 +25,12 @@ export const getProductReviews = catchAsync(async (req, res) => {
 });
 
 export const addReview = catchAsync(async (req, res) => {
+  const product = await Product.findOne({ _id: req.params.productId, isActive: true }).select('_id');
+
+  if (!product) {
+    throw new ApiError('Product not found.', 404);
+  }
+
   const review = await Review.findOneAndUpdate(
     { user: req.user._id, product: req.params.productId },
     { rating: req.body.rating, comment: req.body.comment },
